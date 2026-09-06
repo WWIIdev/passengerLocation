@@ -1,25 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { MdCheckCircle, MdLocationPin, MdMyLocation } from "react-icons/md";
 import type Map from "@neshan-maps-platform/ol/Map";
 import { toLonLat } from "@neshan-maps-platform/ol/proj";
 
+import { callApi } from "../api/callApi";
+import {
+  GET_LOCATION_ADDRESS,
+  SAVE_PASSENGER_LOCATION,
+} from "../api/endpoints";
 import Button from "../components/common/buttons/Button";
 import BaseOpenLayerMap from "../components/map/BaseOpenLayerMap";
 import type { LatLng } from "../components/map/types";
+import { notify } from "../utils/notify/notify";
 
 const HOME_LOCATION_STORAGE_KEY = "passengerHomeLocation";
+
+type SavedLocation = LatLng & {
+  address?: string;
+};
+
+type LocationState = {
+  selectedLocation: SavedLocation;
+  isSubmitted: boolean;
+};
 
 const DEFAULT_CENTER: LatLng = {
   lat: 35.7575,
   lng: 51.41,
 };
 
-const formatCoordinate = (value: number) =>
-  new Intl.NumberFormat("fa-IR", {
-    maximumFractionDigits: 6,
-  }).format(value);
-
-const readSavedLocation = (): LatLng | null => {
+const readSavedLocation = (): SavedLocation | null => {
   if (typeof window === "undefined") {
     return null;
   }
@@ -31,7 +42,7 @@ const readSavedLocation = (): LatLng | null => {
       return null;
     }
 
-    const parsedValue = JSON.parse(savedValue) as Partial<LatLng>;
+    const parsedValue = JSON.parse(savedValue) as Partial<SavedLocation>;
 
     if (
       typeof parsedValue.lat !== "number" ||
@@ -43,13 +54,17 @@ const readSavedLocation = (): LatLng | null => {
     return {
       lat: parsedValue.lat,
       lng: parsedValue.lng,
+      address:
+        typeof parsedValue.address === "string"
+          ? parsedValue.address
+          : undefined,
     };
   } catch {
     return null;
   }
 };
 
-const getInitialLocationState = () => {
+const getInitialLocationState = (): LocationState => {
   const savedLocation = readSavedLocation();
 
   return {
@@ -58,23 +73,72 @@ const getInitialLocationState = () => {
   };
 };
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const maybeApiError = error as {
+    response?: {
+      data?: {
+        message?: unknown;
+      };
+    };
+    message?: unknown;
+  };
+
+  if (typeof maybeApiError?.response?.data?.message === "string") {
+    return maybeApiError.response.data.message;
+  }
+
+  if (typeof maybeApiError?.message === "string") {
+    return maybeApiError.message;
+  }
+
+  return fallback;
+};
+
+const extractAddressText = (response: unknown) => {
+  const apiResponse = response as {
+    data?: unknown;
+  };
+
+  if (typeof apiResponse.data === "string") {
+    return apiResponse.data;
+  }
+
+  if (!apiResponse.data || typeof apiResponse.data !== "object") {
+    return "";
+  }
+
+  const data = apiResponse.data as Record<string, unknown>;
+  const address =
+    data.address ??
+    data.formattedAddress ??
+    data.locationTxt ??
+    data.fullAddress ??
+    data.title;
+
+  return typeof address === "string" ? address : "";
+};
+
+const getLocationAddress = async (location: LatLng) => {
+  const response = await callApi({
+    url: GET_LOCATION_ADDRESS,
+    method: "POST",
+    data: {
+      lat: location.lat,
+      lng: location.lng,
+    },
+  });
+
+  return extractAddressText(response);
+};
+
 export default function Home() {
   const [locationState, setLocationState] = useState(getInitialLocationState);
-  const [isSaving, setIsSaving] = useState(false);
   const [followUserTrigger, setFollowUserTrigger] = useState(0);
   const [map, setMap] = useState<Map | null>(null);
 
-  const saveTimeoutRef = useRef<number | null>(null);
   const selectedLocation = locationState.selectedLocation;
+  const selectedAddress = locationState.selectedLocation.address ?? "";
   const isSubmitted = locationState.isSubmitted;
-
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        window.clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const updateSelectedLocation = useCallback((map: Map) => {
     const center = map.getView().getCenter();
@@ -90,6 +154,7 @@ export default function Home() {
       selectedLocation: {
         lat,
         lng,
+        address: undefined,
       },
     }));
   }, []);
@@ -118,25 +183,60 @@ export default function Home() {
     };
   }, [map, updateSelectedLocation]);
 
+  const { mutate: saveLocation, isPending: isSaving } = useMutation({
+    mutationFn: async (location: LatLng) => {
+      const locationTxt = await getLocationAddress(location);
+
+      const savedLocation: SavedLocation = {
+        ...location,
+        address: locationTxt,
+      };
+
+      const response = await callApi({
+        url: SAVE_PASSENGER_LOCATION,
+        method: "POST",
+        data: {
+          latitude: location.lat,
+          longitude: location.lng,
+          locationTxt,
+        },
+      });
+
+      return {
+        response,
+        savedLocation,
+      };
+    },
+
+    onSuccess: ({ response, savedLocation }) => {
+      if (!response?.succeeded) {
+        notify(response?.message ?? "ثبت موقعیت با خطا مواجه شد", "error");
+        return;
+      }
+
+      window.localStorage.setItem(
+        HOME_LOCATION_STORAGE_KEY,
+        JSON.stringify(savedLocation),
+      );
+
+      setLocationState((currentState) => ({
+        ...currentState,
+        selectedLocation: savedLocation,
+        isSubmitted: true,
+      }));
+    },
+
+    onError: (error: unknown) => {
+      notify(getErrorMessage(error, "خطایی در ثبت موقعیت رخ داد"), "error");
+    },
+  });
+
   const submitLocation = () => {
     if (isSaving) {
       return;
     }
 
-    setIsSaving(true);
-
-    window.localStorage.setItem(
-      HOME_LOCATION_STORAGE_KEY,
-      JSON.stringify(selectedLocation),
-    );
-
-    saveTimeoutRef.current = window.setTimeout(() => {
-      setIsSaving(false);
-      setLocationState((currentState) => ({
-        ...currentState,
-        isSubmitted: true,
-      }));
-    }, 650);
+    saveLocation(selectedLocation);
   };
 
   if (isSubmitted) {
@@ -170,6 +270,12 @@ export default function Home() {
                   <h1 className="mt-4 text-size-2xl font-extrabold leading-9 text-secondary">
                     موقعیت شما در سامانه ثبت شد
                   </h1>
+
+                  {selectedAddress && (
+                    <p className="mx-auto mt-3 max-w-sm text-size-sm font-bold leading-7 text-gray-text">
+                      {selectedAddress}
+                    </p>
+                  )}
                 </div>
               </>
             }
@@ -218,9 +324,8 @@ export default function Home() {
                   نقشه را جابه‌جا کنید تا نشانگر روی موقعیت منزل قرار بگیرد.
                 </p>
 
-                <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-background p-3 text-right text-size-xs font-bold text-gray-text">
-                  <span>عرض: {formatCoordinate(selectedLocation.lat)}</span>
-                  <span>طول: {formatCoordinate(selectedLocation.lng)}</span>
+                <div className="mt-4 rounded-xl bg-background p-3 text-right text-size-sm font-bold leading-7 text-gray-text">
+                  بعد از ثبت، آدرس انتخاب‌شده نمایش داده می‌شود.
                 </div>
 
                 <Button
