@@ -1,0 +1,116 @@
+@import "./assets/font/misc/Farsi-Digits/Vazirmatn-FD-font-face.css";
+@import "tailwindcss";
+
+@theme inline {
+  --color-secondary: #1c3055;
+  --color-secondary-light: #dbdee3;
+  --color-dark: #1f2937;
+  --color-primary: #ef4444;
+  --color-primary-light: #fdf1f1;
+  --color-info: #4494ef;
+  --color-info-light: #eef5fe;
+  --color-background: #f8fafc;
+  --color-gray-text: #9ca3af;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef7ec;
+  --color-success: #10b981;
+  --color-success-light: #f1fbf7;
+  --color-white: #ffffff;
+  --color-box: #f8f8f8;
+  --color-stroke: #e5e7eb;
+  --text-size-xxs: 0.4565rem;
+  --text-size-xs: 0.5875rem;
+  --text-size-sm: 0.75rem;
+  --text-size-base: 0.855rem;
+  --text-size-lg: 1rem;
+  --text-size-xl: 1.125rem;
+  --text-size-2xl: 1.25rem;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: Vazirmatn !important;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  direction: rtl;
+  background: var(--color-background);
+  color: var(--color-dark);
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  text-rendering: optimizeLegibility;
+  
+
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+.station-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  min-width: 140px;
+  padding: 0 24px;
+  border-radius: 9999px;
+  font-family: Vazirmatn;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(28, 48, 85, 0.18);
+  white-space: nowrap;
+}
+
+.station-label::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+}
+
+.station-label-start {
+  background: #ef4444;
+}
+
+.station-label-start::before {
+  border-right: 12px solid #ef4444;
+}
+
+.station-label-station {
+  background: #4494ef;
+}
+
+.station-label-station::before {
+  border-right: 12px solid #4494ef;
+}
+
+.station-label-end {
+  background: #1c3055;
+}
+
+.station-label-end::before {
+  border-right: 12px solid #1c3055;
+}
+
+div:has(> a[href="https://maps.neshan.org"]) {
+  /* opacity: 0; */
+  top: 4px !important;
+  z-index: 1 !important;
+}
