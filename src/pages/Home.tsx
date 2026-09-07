@@ -131,6 +131,10 @@ const getLocationAddress = async (location: LatLng) => {
   return extractAddressText(response);
 };
 
+const isSameLocation = (firstLocation: LatLng, secondLocation: LatLng) =>
+  firstLocation.lat.toFixed(6) === secondLocation.lat.toFixed(6) &&
+  firstLocation.lng.toFixed(6) === secondLocation.lng.toFixed(6);
+
 export default function Home() {
   const [locationState, setLocationState] = useState(getInitialLocationState);
   const [followUserTrigger, setFollowUserTrigger] = useState(0);
@@ -144,19 +148,22 @@ export default function Home() {
     const center = map.getView().getCenter();
 
     if (!center) {
-      return;
+      return null;
     }
 
     const [lng, lat] = toLonLat(center);
+    const nextLocation: SavedLocation = {
+      lat,
+      lng,
+      address: undefined,
+    };
 
     setLocationState((currentState) => ({
       ...currentState,
-      selectedLocation: {
-        lat,
-        lng,
-        address: undefined,
-      },
+      selectedLocation: nextLocation,
     }));
+
+    return nextLocation;
   }, []);
 
   const handleMapReady = useCallback(
@@ -167,25 +174,43 @@ export default function Home() {
     [updateSelectedLocation],
   );
 
-  useEffect(() => {
-    if (!map) {
-      return;
-    }
+  const {
+    mutate: fetchAddress,
+    isPending: isFetchingAddress,
+    isError: hasAddressError,
+  } = useMutation({
+    mutationFn: async (location: LatLng) => {
+      const address = await getLocationAddress(location);
 
-    const handleMoveEnd = () => {
-      updateSelectedLocation(map);
-    };
+      return {
+        address,
+        location,
+      };
+    },
 
-    map.on("moveend", handleMoveEnd);
+    onSuccess: ({ address, location }) => {
+      setLocationState((currentState) => {
+        if (!isSameLocation(currentState.selectedLocation, location)) {
+          return currentState;
+        }
 
-    return () => {
-      map.un("moveend", handleMoveEnd);
-    };
-  }, [map, updateSelectedLocation]);
+        return {
+          ...currentState,
+          selectedLocation: {
+            ...currentState.selectedLocation,
+            address,
+          },
+        };
+      });
+    },
+  });
 
   const { mutate: saveLocation, isPending: isSaving } = useMutation({
     mutationFn: async (location: LatLng) => {
-      const locationTxt = await getLocationAddress(location);
+      const locationTxt =
+        "address" in location && typeof location.address === "string"
+          ? location.address
+          : await getLocationAddress(location);
 
       const savedLocation: SavedLocation = {
         ...location,
@@ -230,6 +255,26 @@ export default function Home() {
       notify(getErrorMessage(error, "خطایی در ثبت موقعیت رخ داد"), "error");
     },
   });
+
+  useEffect(() => {
+    if (!map) {
+      return;
+    }
+
+    const handleMoveEnd = () => {
+      const nextLocation = updateSelectedLocation(map);
+
+      if (nextLocation) {
+        fetchAddress(nextLocation);
+      }
+    };
+
+    map.on("moveend", handleMoveEnd);
+
+    return () => {
+      map.un("moveend", handleMoveEnd);
+    };
+  }, [fetchAddress, map, updateSelectedLocation]);
 
   const submitLocation = () => {
     if (isSaving) {
@@ -324,8 +369,12 @@ export default function Home() {
                   نقشه را جابه‌جا کنید تا نشانگر روی موقعیت منزل قرار بگیرد.
                 </p>
 
-                <div className="mt-4 rounded-xl bg-background p-3 text-right text-size-sm font-bold leading-7 text-gray-text">
-                  بعد از ثبت، آدرس انتخاب‌شده نمایش داده می‌شود.
+                <div className="mt-4 rounded-xl bg-background p-3 text-right text-size-base font-bold leading-7 text-navy">
+                  {isFetchingAddress
+                    ? "در حال دریافت آدرس..."
+                    : hasAddressError
+                      ? "آدرس این نقطه دریافت نشد"
+                      : selectedAddress || "نقشه را جابه‌جا کنید تا آدرس نمایش داده شود."}
                 </div>
 
                 <Button
